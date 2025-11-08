@@ -1,17 +1,6 @@
 // ============ CODE DEFENDERS: AI INVASION ============
 // A game about developers defending their jobs from AI automation
 
-const cfg = {
-  type: Phaser.AUTO,
-  width: 800,
-  height: 600,
-  physics: {
-    default: 'arcade',
-    arcade: { gravity: { y: 0 } }
-  },
-  scene: []
-};
-
 // ============ LOBBY SCENE ============
 class LobbyScene extends Phaser.Scene {
   constructor() {
@@ -218,7 +207,7 @@ class GameScene extends Phaser.Scene {
   create() {
     // Background
     this.add.rectangle(400, 300, 800, 600, 0x000000);
-    
+
     // Starfield
     this.stars = this.add.graphics();
     for (let i = 0; i < 100; i++) {
@@ -228,10 +217,10 @@ class GameScene extends Phaser.Scene {
       this.stars.fillStyle(0xffffff, Math.random() * 0.8 + 0.2);
       this.stars.fillCircle(x, y, s);
     }
-    
+
     // Create textures
     this.createTextures();
-    
+
     // Audio context
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -239,28 +228,26 @@ class GameScene extends Phaser.Scene {
     } catch (e) {
       this.audioCtx = null;
     }
-    
+
     // Ships
     this.ship1 = this.physics.add.sprite(200, 550, 'ship1');
     this.ship1.setCollideWorldBounds(true);
-    
+
     this.ship2 = this.physics.add.sprite(600, 550, 'ship2');
     this.ship2.setCollideWorldBounds(true);
-    
+
     // Groups
     this.bullets = this.physics.add.group({ maxSize: 30 });
     this.enemies = this.physics.add.group();
     this.enemyBullets = this.physics.add.group({ maxSize: 20 });
     this.powerups = this.physics.add.group({ maxSize: 5 });
-    
-    // Particles
+
+    // Particle texture
     const pg = this.add.graphics();
     pg.fillStyle(0xffffff, 1);
     pg.fillCircle(2, 2, 2);
     pg.generateTexture('particle', 4, 4);
     pg.destroy();
-    
-    this.particles = this.add.particles('particle');
     
     // Collisions
     this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy, null, this);
@@ -433,16 +420,6 @@ class GameScene extends Phaser.Scene {
     const b = this.bullets.create(x, y, 'bullet');
     b.setVelocityY(-500);
     this.playSound(440, 0.08, 0.15);
-    
-    // Bullet trail
-    this.particles.createEmitter({
-      follow: b,
-      quantity: 2,
-      scale: { start: 0.3, end: 0 },
-      tint: 0x00ff88,
-      lifespan: 200,
-      alpha: { start: 0.8, end: 0 }
-    });
   }
   
   enemyShoot(x, y) {
@@ -601,51 +578,64 @@ class GameScene extends Phaser.Scene {
   
   hitEnemy(bullet, enemy) {
     bullet.destroy();
-    
+
     if (this.shield > 0) return;
-    
+
     enemy.hp--;
-    
+
     // Flash effect
     enemy.setTint(0xffffff);
     this.time.delayedCall(100, () => enemy.clearTint());
-    
+
     if (enemy.hp <= 0) {
-      // Explosion
-      this.particles.createEmitter({
-        x: enemy.x,
-        y: enemy.y,
-        speed: { min: 50, max: 200 },
-        angle: { min: 0, max: 360 },
-        scale: { start: 1, end: 0 },
-        tint: enemy.aiType === 'chatbot' ? 0x00ff00 : (enemy.aiType === 'copilot' ? 0x0088ff : (enemy.aiType === 'agent' ? 0xff00ff : (enemy.aiType === 'boss' ? 0xff0000 : 0xffaa00))),
-        lifespan: 600,
-        quantity: enemy.aiType === 'boss' ? 50 : 15
+      // Explosion effect - simple visual feedback
+      const ex = enemy.x;
+      const ey = enemy.y;
+      const color = enemy.aiType === 'chatbot' ? 0x00ff00 : (enemy.aiType === 'copilot' ? 0x0088ff : (enemy.aiType === 'agent' ? 0xff00ff : (enemy.aiType === 'boss' ? 0xff0000 : 0xffaa00)));
+
+      // Create explosion circle
+      const explosion = this.add.graphics();
+      explosion.fillStyle(color, 0.8);
+      explosion.fillCircle(ex, ey, 5);
+
+      this.tweens.add({
+        targets: explosion,
+        alpha: 0,
+        duration: 300,
+        onComplete: () => explosion.destroy()
       });
-      
+
+      // Expand circle
+      this.tweens.add({
+        targets: explosion,
+        scaleX: enemy.aiType === 'boss' ? 8 : 4,
+        scaleY: enemy.aiType === 'boss' ? 8 : 4,
+        duration: 300
+      });
+
       // Score
       this.combo++;
       this.comboTimer = 2000;
       this.comboMult = Math.min(Math.floor(this.combo / 3) + 1, 5);
       this.score += enemy.points * this.comboMult;
       this.scoreText.setText('SCORE: ' + this.score);
-      
+
       if (this.comboMult > 1) {
         this.comboText.setText('x' + this.comboMult + ' COMBO!');
       }
-      
+
       // Powerup chance
       if (Math.random() < 0.15 && this.powerups.countActive() < 3) {
         this.spawnPowerup(enemy.x, enemy.y);
       }
-      
+
       this.enemiesLeft--;
-      
+
       if (enemy.aiType === 'boss') {
         this.bossActive = false;
         this.cameras.main.shake(800, 0.02);
       }
-      
+
       enemy.destroy();
       this.playSound(880, 0.15, 0.2);
     } else {
@@ -825,5 +815,15 @@ class GameScene extends Phaser.Scene {
 }
 
 // ============ GAME INIT ============
-cfg.scene = [LobbyScene, GameScene];
-const game = new Phaser.Game(cfg);
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 } }
+  },
+  scene: [LobbyScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
