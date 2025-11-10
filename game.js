@@ -158,34 +158,50 @@ class LobbyScene extends Phaser.Scene {
   
   update() {
     const spd = 220;
-    
+
     // P1 movement
-    if (this.cursors.left.isDown) this.p1.setVelocityX(-spd);
-    else if (this.cursors.right.isDown) this.p1.setVelocityX(spd);
-    else this.p1.setVelocityX(0);
-    
+    if (this.cursors.left.isDown) {
+      this.p1.setVelocityX(-spd);
+      this.p1.scaleX = -1;
+    } else if (this.cursors.right.isDown) {
+      this.p1.setVelocityX(spd);
+      this.p1.scaleX = 1;
+    } else {
+      this.p1.setVelocityX(0);
+    }
+
     if (this.cursors.up.isDown) this.p1.setVelocityY(-spd);
     else if (this.cursors.down.isDown) this.p1.setVelocityY(spd);
     else this.p1.setVelocityY(0);
-    
+
     // P2 movement
-    if (this.wasd.A.isDown) this.p2.setVelocityX(-spd);
-    else if (this.wasd.D.isDown) this.p2.setVelocityX(spd);
-    else this.p2.setVelocityX(0);
-    
+    if (this.wasd.A.isDown) {
+      this.p2.setVelocityX(-spd);
+      this.p2.scaleX = -1;
+    } else if (this.wasd.D.isDown) {
+      this.p2.setVelocityX(spd);
+      this.p2.scaleX = 1;
+    } else {
+      this.p2.setVelocityX(0);
+    }
+
     if (this.wasd.W.isDown) this.p2.setVelocityY(-spd);
     else if (this.wasd.S.isDown) this.p2.setVelocityY(spd);
     else this.p2.setVelocityY(0);
-    
+
     // Check station proximity
     const p1Near = Phaser.Math.Distance.Between(this.p1.x, this.p1.y, 610, 300) < 100;
     const p2Near = Phaser.Math.Distance.Between(this.p2.x, this.p2.y, 610, 300) < 100;
     const nearStation = p1Near || p2Near;
-    
+
     this.prompt.setVisible(nearStation);
-    
+
     if (nearStation && Phaser.Input.Keyboard.JustDown(this.space)) {
-      this.scene.start('Game', { players: 2 });
+      // Transition effect
+      this.cameras.main.flash(400, 0, 255, 136);
+      this.time.delayedCall(400, () => {
+        this.scene.start('Game', { players: 2 });
+      });
     }
   }
 }
@@ -213,12 +229,82 @@ class GameScene extends Phaser.Scene {
     this.enemiesLeft = 0;
     this.bossActive = false;
     this.bossPhase = 1;
+    this.bossRef = null;
+    this.achievements = this.loadAchievements();
+  }
+
+  loadAchievements() {
+    const stored = localStorage.getItem('cdAchievements');
+    return stored ? JSON.parse(stored) : {
+      firstKill: false,
+      wave5: false,
+      wave10: false,
+      combo10: false,
+      firstBoss: false,
+      score10k: false
+    };
+  }
+
+  saveAchievements() {
+    localStorage.setItem('cdAchievements', JSON.stringify(this.achievements));
+  }
+
+  checkAchievement(key, msg) {
+    if (!this.achievements[key]) {
+      this.achievements[key] = true;
+      this.saveAchievements();
+      this.showAchievement(msg);
+    }
+  }
+
+  showAchievement(msg) {
+    const a = this.add.text(400, 100, '🏆 ' + msg, {
+      fontSize: '24px',
+      color: '#ffff00',
+      backgroundColor: '#000000',
+      padding: { x: 15, y: 8 },
+      fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(1000);
+
+    this.tweens.add({
+      targets: a,
+      y: 70,
+      alpha: 0,
+      duration: 3000,
+      ease: 'Cubic.easeOut',
+      onComplete: () => a.destroy()
+    });
+
+    this.playSound(1200, 0.5, 0.3);
+  }
+
+  floatScore(x, y, pts, mult) {
+    const txt = this.add.text(x, y, '+' + pts + (mult > 1 ? ' x' + mult : ''), {
+      fontSize: mult > 1 ? '20px' : '16px',
+      color: mult > 1 ? '#ffff00' : '#00ff88',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(0.5).setDepth(100);
+
+    this.tweens.add({
+      targets: txt,
+      y: y - 50,
+      alpha: 0,
+      duration: 800,
+      ease: 'Cubic.easeOut',
+      onComplete: () => txt.destroy()
+    });
   }
   
   create() {
     // Background
     this.add.rectangle(400, 300, 800, 600, 0x000000);
-    
+
+    // Animated grid
+    this.gridTime = 0;
+    this.grid = this.add.graphics();
+
     // Starfield
     this.stars = this.add.graphics();
     for (let i = 0; i < 100; i++) {
@@ -297,11 +383,20 @@ class GameScene extends Phaser.Scene {
       backgroundColor: '#000000',
       padding: { x: 8, y: 4 }
     }).setOrigin(0.5).setVisible(false);
-    
+
+    // Boss health bar (hidden initially)
+    this.bossHealthBg = this.add.rectangle(400, 50, 400, 20, 0x330000).setVisible(false).setDepth(50);
+    this.bossHealthBar = this.add.rectangle(200, 50, 400, 16, 0xff0000).setVisible(false).setDepth(51);
+    this.bossHealthText = this.add.text(400, 50, '', {
+      fontSize: '14px',
+      color: '#ffffff',
+      fontStyle: 'bold'
+    }).setOrigin(0.5).setVisible(false).setDepth(52);
+
     // Input
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
-    
+
     // Start first wave
     this.time.delayedCall(1000, () => this.startWave());
   }
@@ -342,14 +437,41 @@ class GameScene extends Phaser.Scene {
   
   update(time, delta) {
     if (!this.gameActive) return;
-    
+
+    // Animate background grid
+    this.gridTime += delta * 0.0005;
+    this.grid.clear();
+    this.grid.lineStyle(1, 0x00ff88, 0.08);
+    const offset = (this.gridTime * 20) % 40;
+    for (let i = -40; i < 800; i += 40) {
+      this.grid.lineBetween(i + offset, 0, i + offset, 600);
+    }
+    for (let j = -40; j < 600; j += 40) {
+      this.grid.lineBetween(0, j + offset, 800, j + offset);
+    }
+
+    // Update boss health bar
+    if (this.bossActive && this.bossRef && this.bossRef.active) {
+      const pct = this.bossRef.hp / this.bossRef.maxHp;
+      this.bossHealthBar.width = Math.max(0, 400 * pct);
+      this.bossHealthBar.x = 200 + this.bossHealthBar.width / 2;
+      this.bossHealthText.setText('AGI BOSS: ' + this.bossRef.hp + ' / ' + this.bossRef.maxHp);
+    }
+
     const spd = 280;
     
     // Ship 1 controls
-    if (this.cursors.left.isDown) this.ship1.setVelocityX(-spd);
-    else if (this.cursors.right.isDown) this.ship1.setVelocityX(spd);
-    else this.ship1.setVelocityX(0);
-    
+    if (this.cursors.left.isDown) {
+      this.ship1.setVelocityX(-spd);
+      this.ship1.angle = -5;
+    } else if (this.cursors.right.isDown) {
+      this.ship1.setVelocityX(spd);
+      this.ship1.angle = 5;
+    } else {
+      this.ship1.setVelocityX(0);
+      this.ship1.angle = 0;
+    }
+
     if (this.cursors.down.isDown) this.ship1.setVelocityY(spd * 0.5);
     else if (this.cursors.up.isDown && this.ship1.y > 400) this.ship1.setVelocityY(-spd * 0.5);
     else this.ship1.setVelocityY(0);
@@ -361,10 +483,17 @@ class GameScene extends Phaser.Scene {
     }
     
     // Ship 2 controls
-    if (this.wasd.A.isDown) this.ship2.setVelocityX(-spd);
-    else if (this.wasd.D.isDown) this.ship2.setVelocityX(spd);
-    else this.ship2.setVelocityX(0);
-    
+    if (this.wasd.A.isDown) {
+      this.ship2.setVelocityX(-spd);
+      this.ship2.angle = -5;
+    } else if (this.wasd.D.isDown) {
+      this.ship2.setVelocityX(spd);
+      this.ship2.angle = 5;
+    } else {
+      this.ship2.setVelocityX(0);
+      this.ship2.angle = 0;
+    }
+
     if (this.wasd.S.isDown) this.ship2.setVelocityY(spd * 0.5);
     else if (this.wasd.W.isDown && this.ship2.y > 400) this.ship2.setVelocityY(-spd * 0.5);
     else this.ship2.setVelocityY(0);
@@ -384,16 +513,44 @@ class GameScene extends Phaser.Scene {
       } else if (e.aiType === 'agent') {
         e.x += Math.sin(time * 0.003 + e.offset) * 2.5;
         if (Math.random() < 0.002 && !this.bossActive) {
-          this.enemyShoot(e.x, e.y + 15);
+          // Warning flash
+          e.setTint(0xff0000);
+          this.time.delayedCall(200, () => {
+            if (e.active) {
+              e.clearTint();
+              this.enemyShoot(e.x, e.y + 15);
+            }
+          });
         }
       } else if (e.aiType === 'swarm') {
         e.x += Math.sin(time * 0.006 + e.offset) * 4;
         e.y += Math.sin(time * 0.005 + e.offset) * 2;
       } else if (e.aiType === 'boss') {
         e.x += Math.sin(time * 0.001) * 3;
-        if (time % 1000 < 50) {
-          this.enemyShoot(e.x - 20, e.y + 30);
-          this.enemyShoot(e.x + 20, e.y + 30);
+
+        // Multi-phase boss patterns
+        const hpPct = e.hp / e.maxHp;
+        if (hpPct > 0.66) {
+          // Phase 1: Basic shooting
+          if (time % 1000 < 50) {
+            this.enemyShoot(e.x - 20, e.y + 30);
+            this.enemyShoot(e.x + 20, e.y + 30);
+          }
+        } else if (hpPct > 0.33) {
+          // Phase 2: Spread shot
+          if (time % 800 < 50) {
+            for (let i = -1; i <= 1; i++) {
+              this.enemyShoot(e.x + i * 30, e.y + 30);
+            }
+          }
+        } else {
+          // Phase 3: Rapid fire + movement
+          e.x += Math.sin(time * 0.003) * 5;
+          if (time % 500 < 50) {
+            this.enemyShoot(e.x - 30, e.y + 30);
+            this.enemyShoot(e.x, e.y + 30);
+            this.enemyShoot(e.x + 30, e.y + 30);
+          }
         }
       }
       
@@ -432,8 +589,19 @@ class GameScene extends Phaser.Scene {
   shoot(x, y) {
     const b = this.bullets.create(x, y, 'bullet');
     b.setVelocityY(-500);
+    b.setScale(1);
     this.playSound(440, 0.08, 0.15);
-    
+
+    // Muzzle flash
+    const flash = this.add.circle(x, y, 8, 0x00ff88, 0.8).setDepth(10);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 2,
+      duration: 100,
+      onComplete: () => flash.destroy()
+    });
+
     // Bullet trail
     this.particles.createEmitter({
       follow: b,
@@ -451,45 +619,119 @@ class GameScene extends Phaser.Scene {
   }
   
   startWave() {
+    // Wave achievements
+    if (this.wave === 5) this.checkAchievement('wave5', 'WAVE 5 CLEARED!');
+    if (this.wave === 10) this.checkAchievement('wave10', 'WAVE 10 SURVIVOR!');
+
+    // Wave announcement
+    const waveAnnounce = this.add.text(400, 300, 'WAVE ' + this.wave, {
+      fontSize: '64px',
+      color: '#00ff88',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 6
+    }).setOrigin(0.5).setDepth(1000);
+
+    this.tweens.add({
+      targets: waveAnnounce,
+      scale: 1.2,
+      duration: 800,
+      yoyo: true,
+      onComplete: () => {
+        // Countdown
+        let count = 3;
+        const countdown = this.add.text(400, 300, count, {
+          fontSize: '96px',
+          color: '#ff0066',
+          fontStyle: 'bold',
+          stroke: '#000000',
+          strokeThickness: 8
+        }).setOrigin(0.5).setDepth(1000);
+
+        const countInterval = this.time.addEvent({
+          delay: 700,
+          repeat: 2,
+          callback: () => {
+            count--;
+            if (count > 0) {
+              countdown.setText(count);
+              this.playSound(800, 0.1, 0.2);
+            } else {
+              countdown.setText('GO!');
+              this.playSound(1000, 0.2, 0.3);
+              this.tweens.add({
+                targets: countdown,
+                alpha: 0,
+                scale: 2,
+                duration: 500,
+                onComplete: () => countdown.destroy()
+              });
+              this.beginWaveSpawn();
+            }
+          }
+        });
+
+        waveAnnounce.destroy();
+      }
+    });
+
     this.waveText.setText('WAVE ' + this.wave);
-    
+    this.playSound(600, 0.3, 0.25);
+  }
+
+  beginWaveSpawn() {
     // Boss wave every 5 waves
     if (this.wave % 5 === 0) {
       this.spawnBoss();
       return;
     }
-    
+
     // Calculate enemy counts
     const chatbots = Math.min(5 + this.wave, 12);
     const copilots = this.wave > 2 ? Math.min(Math.floor(this.wave / 2), 6) : 0;
     const agents = this.wave > 4 ? Math.min(Math.floor(this.wave / 3), 4) : 0;
     const swarms = this.wave > 3 ? Math.min(this.wave - 3, 8) : 0;
-    
+
     this.enemiesLeft = chatbots + copilots + agents + swarms;
-    
-    // Spawn enemies
+
+    // Spawn enemies in formations
     let delay = 0;
+
+    // V-formation for chatbots
+    const vSpacing = Math.min(chatbots, 5);
     for (let i = 0; i < chatbots; i++) {
-      this.time.delayedCall(delay, () => this.spawnEnemy('chatbot'));
+      const row = Math.floor(i / vSpacing);
+      const col = i % vSpacing;
+      const xOffset = (col - vSpacing / 2) * 60;
+      const yOffset = row * 50;
+      this.time.delayedCall(delay, () => this.spawnEnemy('chatbot', 400 + xOffset, -30 - yOffset));
+      delay += 150;
+    }
+
+    // Line formation for copilots
+    for (let i = 0; i < copilots; i++) {
+      const x = 150 + (i * 100);
+      this.time.delayedCall(delay, () => this.spawnEnemy('copilot', x, -30));
       delay += 300;
     }
-    for (let i = 0; i < copilots; i++) {
-      this.time.delayedCall(delay, () => this.spawnEnemy('copilot'));
-      delay += 400;
-    }
+
+    // Scattered agents
     for (let i = 0; i < agents; i++) {
       this.time.delayedCall(delay, () => this.spawnEnemy('agent'));
       delay += 500;
     }
+
+    // Swarms come from sides
     for (let i = 0; i < swarms; i++) {
-      this.time.delayedCall(delay, () => this.spawnEnemy('swarm'));
+      const x = i % 2 === 0 ? 50 : 750;
+      this.time.delayedCall(delay, () => this.spawnEnemy('swarm', x, 100 + Math.random() * 200));
       delay += 200;
     }
   }
   
-  spawnEnemy(type) {
-    const x = 100 + Math.random() * 600;
-    const y = -30;
+  spawnEnemy(type, spawnX, spawnY) {
+    const x = spawnX !== undefined ? spawnX : 100 + Math.random() * 600;
+    const y = spawnY !== undefined ? spawnY : -30;
     
     // Create texture if needed
     if (!this.textures.exists(type)) {
@@ -553,7 +795,7 @@ class GameScene extends Phaser.Scene {
     this.bossActive = true;
     this.bossPhase = 1;
     this.enemiesLeft = 1;
-    
+
     // Boss texture
     if (!this.textures.exists('boss')) {
       const g = this.add.graphics();
@@ -570,7 +812,7 @@ class GameScene extends Phaser.Scene {
       g.generateTexture('boss', 80, 60);
       g.destroy();
     }
-    
+
     const boss = this.enemies.create(400, -60, 'boss');
     boss.aiType = 'boss';
     boss.offset = 0;
@@ -578,7 +820,15 @@ class GameScene extends Phaser.Scene {
     boss.maxHp = boss.hp;
     boss.points = 500;
     boss.setVelocityY(30);
-    
+
+    // Store boss reference
+    this.bossRef = boss;
+
+    // Show boss health bar
+    this.bossHealthBg.setVisible(true);
+    this.bossHealthBar.setVisible(true);
+    this.bossHealthText.setVisible(true);
+
     // Boss warning
     const warning = this.add.text(400, 300, 'AGI BOSS INCOMING!', {
       fontSize: '48px',
@@ -586,31 +836,50 @@ class GameScene extends Phaser.Scene {
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 6
-    }).setOrigin(0.5);
-    
+    }).setOrigin(0.5).setDepth(1000);
+
     this.tweens.add({
       targets: warning,
-      alpha: 0,
-      duration: 2000,
-      onComplete: () => warning.destroy()
+      scale: 1.3,
+      duration: 500,
+      yoyo: true,
+      repeat: 2,
+      onComplete: () => {
+        this.tweens.add({
+          targets: warning,
+          alpha: 0,
+          duration: 500,
+          onComplete: () => warning.destroy()
+        });
+      }
     });
-    
+
     this.playSound(100, 1, 0.3);
     this.cameras.main.shake(500, 0.01);
   }
   
   hitEnemy(bullet, enemy) {
     bullet.destroy();
-    
+
     if (this.shield > 0) return;
-    
+
     enemy.hp--;
-    
+
     // Flash effect
     enemy.setTint(0xffffff);
-    this.time.delayedCall(100, () => enemy.clearTint());
-    
+    this.time.delayedCall(100, () => { if (enemy.active) enemy.clearTint(); });
+
     if (enemy.hp <= 0) {
+      // Death animation
+      this.tweens.add({
+        targets: enemy,
+        scale: 0,
+        angle: 360,
+        alpha: 0,
+        duration: 300,
+        ease: 'Back.easeIn'
+      });
+
       // Explosion
       this.particles.createEmitter({
         x: enemy.x,
@@ -622,32 +891,55 @@ class GameScene extends Phaser.Scene {
         lifespan: 600,
         quantity: enemy.aiType === 'boss' ? 50 : 15
       });
-      
+
       // Score
       this.combo++;
       this.comboTimer = 2000;
+      const oldMult = this.comboMult;
       this.comboMult = Math.min(Math.floor(this.combo / 3) + 1, 5);
       this.score += enemy.points * this.comboMult;
       this.scoreText.setText('SCORE: ' + this.score);
-      
+
+      // Floating score
+      this.floatScore(enemy.x, enemy.y, enemy.points, this.comboMult);
+
       if (this.comboMult > 1) {
         this.comboText.setText('x' + this.comboMult + ' COMBO!');
       }
-      
+
+      // Combo milestone celebrations
+      if (this.comboMult > oldMult && this.comboMult >= 3) {
+        this.cameras.main.flash(200, 255, 255, 0, false, (c, p) => {
+          if (p === 1) this.cameras.main.flash(200, 255, 255, 0);
+        });
+        this.playSound(1400, 0.3, 0.25);
+      }
+
+      // Achievements
+      if (this.combo === 1) this.checkAchievement('firstKill', 'FIRST BLOOD!');
+      if (this.combo >= 10) this.checkAchievement('combo10', '10 COMBO MASTER!');
+      if (this.score >= 10000) this.checkAchievement('score10k', '10K SCORE!');
+
       // Powerup chance
       if (Math.random() < 0.15 && this.powerups.countActive() < 3) {
         this.spawnPowerup(enemy.x, enemy.y);
       }
-      
+
       this.enemiesLeft--;
-      
+
       if (enemy.aiType === 'boss') {
         this.bossActive = false;
         this.cameras.main.shake(800, 0.02);
+        this.checkAchievement('firstBoss', 'BOSS DEFEATED!');
+        this.bossHealthBg.setVisible(false);
+        this.bossHealthBar.setVisible(false);
+        this.bossHealthText.setVisible(false);
+        this.bossRef = null;
       }
-      
-      enemy.destroy();
+
+      this.time.delayedCall(300, () => { if (enemy.active) enemy.destroy(); });
       this.playSound(880, 0.15, 0.2);
+      this.cameras.main.shake(100, 0.005);
     } else {
       this.playSound(660, 0.1, 0.15);
     }
@@ -680,7 +972,7 @@ class GameScene extends Phaser.Scene {
   spawnPowerup(x, y) {
     const types = ['rapid', 'slow', 'shield', 'bomb'];
     const type = types[Math.floor(Math.random() * types.length)];
-    
+
     if (!this.textures.exists('powerup_' + type)) {
       const g = this.add.graphics();
       const colors = { rapid: 0xff8800, slow: 0x8b4513, shield: 0x00ff00, bomb: 0xffff00 };
@@ -691,22 +983,66 @@ class GameScene extends Phaser.Scene {
       g.generateTexture('powerup_' + type, 30, 30);
       g.destroy();
     }
-    
+
     const p = this.powerups.create(x, y, 'powerup_' + type);
     p.powerType = type;
     p.setVelocityY(100);
-    
+    p.setScale(0);
+
+    // Spawn animation
+    this.tweens.add({
+      targets: p,
+      scale: 1,
+      duration: 400,
+      ease: 'Back.easeOut'
+    });
+
+    // Pulsing glow
+    this.tweens.add({
+      targets: p,
+      scale: 1.2,
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+
+    // Rotation
     this.tweens.add({
       targets: p,
       angle: 360,
       duration: 2000,
       repeat: -1
     });
+
+    // Particle trail
+    const colors = { rapid: 0xff8800, slow: 0x8b4513, shield: 0x00ff00, bomb: 0xffff00 };
+    this.particles.createEmitter({
+      follow: p,
+      quantity: 1,
+      scale: { start: 0.4, end: 0 },
+      tint: colors[type],
+      lifespan: 400,
+      alpha: { start: 0.6, end: 0 },
+      frequency: 100
+    });
   }
   
   collectPowerup(player, powerup) {
+    // Collection burst
+    this.particles.createEmitter({
+      x: powerup.x,
+      y: powerup.y,
+      speed: { min: 100, max: 250 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.6, end: 0 },
+      tint: powerup.powerType === 'rapid' ? 0xff8800 : (powerup.powerType === 'slow' ? 0x8b4513 : (powerup.powerType === 'shield' ? 0x00ff00 : 0xffff00)),
+      lifespan: 500,
+      quantity: 20
+    });
+
     powerup.destroy();
-    
+
     if (powerup.powerType === 'bomb') {
       // Clear all enemies
       this.enemies.children.entries.forEach(e => {
@@ -715,16 +1051,19 @@ class GameScene extends Phaser.Scene {
         }
       });
       this.cameras.main.flash(300, 255, 255, 255);
+      this.cameras.main.shake(400, 0.02);
     } else if (powerup.powerType === 'shield') {
       this.shield = 3;
       this.powerupText.setText('🛡️ SHIELD ACTIVE').setVisible(true);
+      player.setTint(0x00ff00);
+      this.time.delayedCall(300, () => { if (player.active) player.clearTint(); });
     } else {
       this.powerupActive = powerup.powerType;
       this.powerupTimer = 5000;
       const names = { rapid: '⚡ RAPID FIRE', slow: '⏰ SLOW TIME' };
       this.powerupText.setText(names[powerup.powerType]).setVisible(true);
     }
-    
+
     this.playSound(1000, 0.3, 0.25);
   }
   
